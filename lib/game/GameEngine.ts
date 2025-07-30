@@ -6,10 +6,9 @@ import { InputHandler } from "./InputHandler";
 import { NPCManager } from "./entities/NPCManager";
 import { useGameStore } from "../store/gameStore";
 import GameAPI from "../api/gameApi";
-import { Ticker } from "@pixi/ticker";
 
 export class GameEngine {
-  public app: PIXI.Application;
+  public app: PIXI.Application | null = null;
   public gameContainer: PIXI.Container;
   public uiContainer: PIXI.Container;
 
@@ -22,18 +21,14 @@ export class GameEngine {
   private gameStore = useGameStore;
   private lastUpdate = Date.now();
   private gameLoop: boolean = true;
-  private canvas: HTMLCanvasElement; // Store canvas reference
+  private canvas: HTMLCanvasElement;
+  private ticker: PIXI.Ticker | null = null;
+  private isInitialized = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas; // Store canvas reference
+    this.canvas = canvas;
 
-    // Initialize Pixi Application untuk v8
-    this.app = new PIXI.Application();
-
-    // Initialize app secara async
-    this.initializeApp(canvas);
-
-    // Create main containers
+    // Initialize containers first
     this.gameContainer = new PIXI.Container();
     this.uiContainer = new PIXI.Container();
 
@@ -43,11 +38,15 @@ export class GameEngine {
     console.log("Game Engine initialized");
   }
 
-  private async initializeApp(canvas: HTMLCanvasElement) {
+  async initialize() {
     try {
+      this.gameStore.getState().setLoading(true);
+      
       // Initialize PIXI Application untuk v8
+      this.app = new PIXI.Application();
+      
       await this.app.init({
-        canvas: canvas,
+        canvas: this.canvas,
         width: window.innerWidth,
         height: window.innerHeight,
         backgroundColor: 0x2d3748,
@@ -56,46 +55,35 @@ export class GameEngine {
         autoDensity: true,
       });
 
-      // Add containers to stage
+      // Pastikan app dan stage sudah siap
+      if (!this.app || !this.app.stage) {
+        throw new Error("PIXI Application stage not ready");
+      }
+
+      // Add containers to stage setelah app siap
       this.app.stage.addChild(this.gameContainer);
       this.app.stage.addChild(this.uiContainer);
 
-      // Setup WebSocket connection
-      this.setupWebSocket();
-
-      // Start game loop
-      const ticker = new Ticker();
-      ticker.add(this.update.bind(this));
-      ticker.start();
-
       console.log("PIXI App initialized successfully");
-    } catch (error) {
-      console.error("Failed to initialize PIXI app:", error);
-    }
-  }
 
-  async initialize() {
-    try {
-      // Wait for app to be initialized
-      while (!this.app.renderer) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      // Try to authenticate first
+      await this.tryAuthentication();
 
       // Load initial game data
       await this.loadPlayerData();
       await this.loadMapData("village");
 
-      // Initialize player
+      // Initialize player dengan renderer yang sudah siap
       const playerData = this.gameStore.getState().player;
-      if (playerData) {
+      if (playerData && this.app.renderer) {
         this.player = new Player(playerData, this.app.renderer);
         this.gameContainer.addChild(this.player.sprite);
 
-        // Init camera AFTER renderer ready
+        // Initialize camera
         this.camera = new Camera(
           this.gameContainer,
-          this.app.screen.width, // Gunakan app.screen.width untuk v8
-          this.app.screen.height // Gunakan app.screen.height untuk v8
+          this.app.screen.width,
+          this.app.screen.height
         );
 
         // Center camera on player
@@ -105,6 +93,13 @@ export class GameEngine {
       // Load NPCs
       await this.loadNPCs();
 
+      // Setup WebSocket connection (only if authenticated)
+      this.setupWebSocket();
+
+      // Start game loop
+      this.startGameLoop();
+
+      this.isInitialized = true;
       this.gameStore.getState().setInitialized(true);
       this.gameStore.getState().setLoading(false);
 
@@ -112,6 +107,53 @@ export class GameEngine {
     } catch (error) {
       console.error("Failed to initialize game:", error);
       this.gameStore.getState().setLoading(false);
+      throw error; // Re-throw untuk di-handle oleh Game component
+    }
+  }
+
+  private async tryAuthentication() {
+    // Check if we have a stored token
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      console.warn('No auth token found - creating demo session');
+      // Create a demo token for development
+      const demoToken = 'demo_' + Date.now();
+      localStorage.setItem('auth_token', demoToken);
+      return;
+    }
+
+    // Try to validate token with backend
+    try {
+      const response = await GameAPI.getProfile();
+      if (response.success) {
+        console.log('Authentication successful');
+      } else {
+        console.warn('Token invalid - creating new demo session');
+        this.createDemoAuth();
+      }
+    } catch (error) {
+      console.warn('Backend unavailable - using demo mode');
+      this.createDemoAuth();
+    }
+  }
+
+  private createDemoAuth() {
+    const demoToken = 'demo_' + Date.now();
+    localStorage.setItem('auth_token', demoToken);
+  }
+    if (!this.app) return;
+
+    try {
+      // Gunakan ticker dari app untuk v8
+      this.ticker = this.app.ticker;
+      
+      // Bind update method dan tambahkan ke ticker
+      const updateFn = this.update.bind(this);
+      this.ticker.add(updateFn);
+      
+      console.log("Game loop started successfully");
+    } catch (error) {
+      console.error("Failed to start game loop:", error);
     }
   }
 
@@ -180,7 +222,7 @@ export class GameEngine {
       const response = await GameAPI.getMapState(mapName);
       if (response.success) {
         // Load map from API data
-        this.currentMap = new Map(mapName, response.data);
+        this.currentMap = new Map(mapName, response.data, this.app?.renderer);
         this.gameContainer.addChild(this.currentMap.container);
       }
     } catch (error) {
@@ -191,7 +233,7 @@ export class GameEngine {
   }
 
   private createDefaultMap(mapName: string) {
-    this.currentMap = new Map(mapName);
+    this.currentMap = new Map(mapName, undefined, this.app?.renderer);
     this.gameContainer.addChild(this.currentMap.container);
   }
 
@@ -235,29 +277,41 @@ export class GameEngine {
     ];
 
     this.gameStore.getState().setNPCs(demoNPCs);
-    this.npcManager.loadNPCs(demoNPCs, this.gameContainer, this.app.renderer);
+    this.npcManager.loadNPCs(demoNPCs, this.gameContainer, this.app?.renderer);
   }
 
   private setupWebSocket() {
-    GameAPI.connectWebSocket((event, data) => {
-      switch (event) {
-        case "player_position_update":
-          this.handlePlayerPositionUpdate(data);
-          break;
-        case "time_update":
-          this.gameStore.getState().setGameTime(data);
-          break;
-        case "npc_position_update":
-          this.npcManager.updateNPCPosition(data);
-          break;
-        case "quest_update":
-          this.handleQuestUpdate(data);
-          break;
-        case "notification":
-          this.showNotification(data.message);
-          break;
-      }
-    });
+    const token = localStorage.getItem('auth_token');
+    
+    // Skip WebSocket if no token or demo token
+    if (!token || token.startsWith('demo_')) {
+      console.warn('Skipping WebSocket connection - no valid token');
+      return;
+    }
+
+    try {
+      GameAPI.connectWebSocket((event, data) => {
+        switch (event) {
+          case "player_position_update":
+            this.handlePlayerPositionUpdate(data);
+            break;
+          case "time_update":
+            this.gameStore.getState().setGameTime(data);
+            break;
+          case "npc_position_update":
+            this.npcManager.updateNPCPosition(data);
+            break;
+          case "quest_update":
+            this.handleQuestUpdate(data);
+            break;
+          case "notification":
+            this.showNotification(data.message);
+            break;
+        }
+      });
+    } catch (error) {
+      console.warn('WebSocket setup failed:', error);
+    }
   }
 
   private handlePlayerPositionUpdate(data: any) {
@@ -275,21 +329,19 @@ export class GameEngine {
   }
 
   private handleQuestUpdate(data: any) {
-    // Update quest progress
     console.log("Quest update:", data);
   }
 
   private showNotification(message: string) {
     console.log("Notification:", message);
-    // TODO: Implement UI notification system
   }
 
   public update() {
+    if (!this.isInitialized || !this.gameLoop) return;
+
     const now = Date.now();
     const deltaTime = now - this.lastUpdate;
     this.lastUpdate = now;
-
-    if (!this.gameLoop) return;
 
     // Update input
     this.inputHandler.update();
@@ -357,22 +409,58 @@ export class GameEngine {
   }
 
   public resize(width: number, height: number) {
-    // Gunakan app.renderer.resize untuk v8
-    if (this.app.renderer) {
-      this.app.renderer.resize(width, height);
-    }
+    try {
+      if (this.app && this.app.renderer) {
+        this.app.renderer.resize(width, height);
+      }
 
-    if (this.camera) {
-      this.camera.resize(width, height);
+      if (this.camera) {
+        this.camera.resize(width, height);
+      }
+    } catch (error) {
+      console.warn("Error during resize:", error);
     }
   }
 
   public destroy() {
     this.gameLoop = false;
+    this.isInitialized = false;
     GameAPI.disconnectWebSocket();
 
-    // Destroy containers
+    // Stop ticker
+    if (this.ticker) {
+      this.ticker.stop();
+      this.ticker.remove(this.update.bind(this));
+      this.ticker = null;
+    }
+
+    // Destroy player first
+    if (this.player) {
+      this.player.destroy();
+      this.player = null;
+    }
+
+    // Destroy NPCs
+    if (this.npcManager) {
+      this.npcManager.destroy();
+    }
+
+    // Destroy current map
+    if (this.currentMap) {
+      this.currentMap.destroy();
+      this.currentMap = null;
+    }
+
+    // Destroy containers dengan proper cleanup
     if (this.gameContainer) {
+      // Remove all children first
+      while (this.gameContainer.children.length > 0) {
+        const child = this.gameContainer.children[0];
+        this.gameContainer.removeChild(child);
+        if (child.destroy) {
+          child.destroy();
+        }
+      }
       this.gameContainer.destroy({
         children: true,
         texture: true,
@@ -381,6 +469,14 @@ export class GameEngine {
     }
 
     if (this.uiContainer) {
+      // Remove all children first
+      while (this.uiContainer.children.length > 0) {
+        const child = this.uiContainer.children[0];
+        this.uiContainer.removeChild(child);
+        if (child.destroy) {
+          child.destroy();
+        }
+      }
       this.uiContainer.destroy({
         children: true,
         texture: true,
@@ -388,14 +484,30 @@ export class GameEngine {
       });
     }
 
-    // Destroy renderer - perbaikan untuk v8
-    if (this.app.renderer) {
-      this.app.renderer.destroy();
+    // Destroy app dengan method yang benar untuk v8
+    if (this.app) {
+      try {
+        // Remove containers from stage first
+        if (this.app.stage) {
+          this.app.stage.removeChildren();
+        }
+        
+        // Destroy app tanpa parameter untuk v8
+        this.app.destroy();
+        this.app = null;
+      } catch (error) {
+        console.warn("Error destroying PIXI app:", error);
+        this.app = null;
+      }
     }
 
-    // Remove canvas from DOM - perbaikan untuk v8
+    // Clear canvas
     if (this.canvas && this.canvas.parentNode) {
-      this.canvas.parentNode.removeChild(this.canvas);
+      try {
+        this.canvas.parentNode.removeChild(this.canvas);
+      } catch (error) {
+        console.warn("Error removing canvas:", error);
+      }
     }
 
     console.log("Game destroyed successfully");
