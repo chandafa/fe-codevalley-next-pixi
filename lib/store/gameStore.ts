@@ -20,6 +20,8 @@ export interface Player {
     problemSolving: number;
   };
   inventory: InventoryItem[];
+  bio?: string;
+  avatarUrl?: string;
 }
 
 export interface InventoryItem {
@@ -28,6 +30,7 @@ export interface InventoryItem {
   type: 'tool' | 'consumable' | 'material' | 'code';
   quantity: number;
   equipped?: boolean;
+  quality?: 'normal' | 'silver' | 'gold' | 'iridium';
 }
 
 export interface NPC {
@@ -35,14 +38,20 @@ export interface NPC {
   name: string;
   position: { x: number; y: number };
   currentMap: string;
-  dialogue: any[];
+  dialogue: DialogueEntry[];
   relationship: number;
   schedule: any[];
 }
 
+export interface DialogueEntry {
+  text: string;
+  speaker: string;
+  choices?: string[];
+}
+
 export interface GameTime {
   gameYear: number;
-  gameSeason: string;
+  gameSeason: 'spring' | 'summer' | 'fall' | 'winter';
   gameDay: number;
   gameHour: number;
   gameMinute: number;
@@ -61,6 +70,47 @@ export interface Quest {
     exp: number;
     items?: InventoryItem[];
   };
+  requiredItems?: { [key: string]: number };
+  isRepeatable?: boolean;
+}
+
+export interface CodeFarm {
+  id: string;
+  plotX: number;
+  plotY: number;
+  codeType: string;
+  plantedAt: Date;
+  wateredAt?: Date;
+  harvestableAt: Date;
+  quality: 'normal' | 'silver' | 'gold' | 'iridium';
+  isReady: boolean;
+}
+
+export interface Friend {
+  id: string;
+  username: string;
+  isOnline: boolean;
+  lastSeen?: Date;
+  relationship: number;
+}
+
+export interface Notification {
+  id: string;
+  type: 'quest' | 'friend' | 'achievement' | 'system';
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: Date;
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  isUnlocked: boolean;
+  unlockedAt?: Date;
+  progress: number;
+  maxProgress: number;
 }
 
 export interface GameState {
@@ -81,11 +131,17 @@ export interface GameState {
   // Game systems
   quests: Quest[];
   activeDialogue: any | null;
+  codeFarms: CodeFarm[];
+  friends: Friend[];
+  notifications: Notification[];
+  achievements: Achievement[];
   
   // UI state
   showInventory: boolean;
   showQuestLog: boolean;
   showSkillTree: boolean;
+  showFriends: boolean;
+  showNotifications: boolean;
   
   // Actions
   setInitialized: (initialized: boolean) => void;
@@ -99,12 +155,23 @@ export interface GameState {
   setGameTime: (time: GameTime) => void;
   setQuests: (quests: Quest[]) => void;
   setActiveDialogue: (dialogue: any) => void;
+  setCodeFarms: (farms: CodeFarm[]) => void;
+  setFriends: (friends: Friend[]) => void;
+  setNotifications: (notifications: Notification[]) => void;
+  setAchievements: (achievements: Achievement[]) => void;
   toggleInventory: () => void;
   toggleQuestLog: () => void;
   toggleSkillTree: () => void;
+  toggleFriends: () => void;
+  toggleNotifications: () => void;
   addToInventory: (item: InventoryItem) => void;
   removeFromInventory: (itemId: string, quantity: number) => void;
   updatePlayerStats: (stats: Partial<Player['stats']>) => void;
+  updatePlayerSkills: (skills: Partial<Player['skills']>) => void;
+  addNotification: (notification: Omit<Notification, 'id' | 'createdAt'>) => void;
+  markNotificationRead: (notificationId: string) => void;
+  addQuest: (quest: Quest) => void;
+  updateQuestProgress: (questId: string, progress: number, status?: Quest['status']) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -130,10 +197,16 @@ export const useGameStore = create<GameState>()(
     
     quests: [],
     activeDialogue: null,
+    codeFarms: [],
+    friends: [],
+    notifications: [],
+    achievements: [],
     
     showInventory: false,
     showQuestLog: false,
     showSkillTree: false,
+    showFriends: false,
+    showNotifications: false,
     
     // Actions
     setInitialized: (initialized) => set({ isInitialized: initialized }),
@@ -160,10 +233,16 @@ export const useGameStore = create<GameState>()(
     setGameTime: (time) => set({ gameTime: time }),
     setQuests: (quests) => set({ quests }),
     setActiveDialogue: (dialogue) => set({ activeDialogue: dialogue }),
+    setCodeFarms: (farms) => set({ codeFarms: farms }),
+    setFriends: (friends) => set({ friends }),
+    setNotifications: (notifications) => set({ notifications }),
+    setAchievements: (achievements) => set({ achievements }),
     
     toggleInventory: () => set((state) => ({ showInventory: !state.showInventory })),
     toggleQuestLog: () => set((state) => ({ showQuestLog: !state.showQuestLog })),
     toggleSkillTree: () => set((state) => ({ showSkillTree: !state.showSkillTree })),
+    toggleFriends: () => set((state) => ({ showFriends: !state.showFriends })),
+    toggleNotifications: () => set((state) => ({ showNotifications: !state.showNotifications })),
     
     addToInventory: (item) => {
       const { player } = get();
@@ -202,6 +281,51 @@ export const useGameStore = create<GameState>()(
           },
         });
       }
+    },
+
+    updatePlayerSkills: (skills) => {
+      const { player } = get();
+      if (player) {
+        set({
+          player: {
+            ...player,
+            skills: { ...player.skills, ...skills },
+          },
+        });
+      }
+    },
+
+    addNotification: (notification) => {
+      const { notifications } = get();
+      const newNotification: Notification = {
+        ...notification,
+        id: Date.now().toString(),
+        createdAt: new Date(),
+      };
+      set({ notifications: [newNotification, ...notifications] });
+    },
+
+    markNotificationRead: (notificationId) => {
+      const { notifications } = get();
+      const updatedNotifications = notifications.map(n =>
+        n.id === notificationId ? { ...n, isRead: true } : n
+      );
+      set({ notifications: updatedNotifications });
+    },
+
+    addQuest: (quest) => {
+      const { quests } = get();
+      set({ quests: [...quests, quest] });
+    },
+
+    updateQuestProgress: (questId, progress, status) => {
+      const { quests } = get();
+      const updatedQuests = quests.map(quest =>
+        quest.id === questId
+          ? { ...quest, progress, ...(status && { status }) }
+          : quest
+      );
+      set({ quests: updatedQuests });
     },
   }))
 );

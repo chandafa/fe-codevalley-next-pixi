@@ -1,7 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/lib/store/gameStore';
-import { Clock, User, Coins, Battery, Book, Package } from 'lucide-react';
+import { Clock, User, Coins, Battery, Book, Package, Users, Bell } from 'lucide-react';
 import InventoryPanel from './InventoryPanel';
 import DialogueBox from './DialogueBox';
 import QuestLog from './QuestLog';
@@ -14,10 +14,15 @@ export default function GameUI() {
     showInventory,
     showQuestLog,
     showSkillTree,
+    showFriends,
+    showNotifications,
     activeDialogue,
+    notifications,
     toggleInventory,
     toggleQuestLog,
-    toggleSkillTree
+    toggleSkillTree,
+    toggleFriends,
+    toggleNotifications
   } = useGameStore();
 
   if (!player) return null;
@@ -27,6 +32,8 @@ export default function GameUI() {
     const displayHour = hour % 12 === 0 ? 12 : hour % 12;
     return `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`;
   };
+
+  const unreadNotifications = notifications.filter(n => !n.isRead).length;
 
   return (
     <>
@@ -78,7 +85,7 @@ export default function GameUI() {
                 <div className="font-medium">
                   {formatTime(gameTime.gameHour, gameTime.gameMinute)}
                 </div>
-                <div className="text-xs text-gray-300">
+                <div className="text-xs text-gray-300 capitalize">
                   {gameTime.gameSeason} {gameTime.gameDay}, Year {gameTime.gameYear}
                 </div>
               </div>
@@ -120,6 +127,31 @@ export default function GameUI() {
             >
               <User className="w-5 h-5" />
             </button>
+
+            <button
+              onClick={toggleFriends}
+              className={`p-2 rounded-md transition-colors ${
+                showFriends ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+              }`}
+              title="Friends (F)"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={toggleNotifications}
+              className={`p-2 rounded-md transition-colors relative ${
+                showNotifications ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+              }`}
+              title="Notifications (N)"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -133,6 +165,8 @@ export default function GameUI() {
             <div>I: Inventory</div>
             <div>Q: Quests</div>
             <div>K: Skills</div>
+            <div>F: Friends</div>
+            <div>N: Notifications</div>
           </div>
         </div>
       </div>

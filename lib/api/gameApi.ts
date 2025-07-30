@@ -4,7 +4,7 @@ import { io, Socket } from "socket.io-client";
 // API Configuration
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:8000";
 
 // Create axios instance
 const api = axios.create({
@@ -30,7 +30,6 @@ api.interceptors.response.use(
     // Handle specific error cases
     if (error.response?.status === 401) {
       console.warn("Authentication failed - token may be invalid");
-      // Don't clear token immediately, let the game handle it
       return Promise.resolve({
         success: false,
         error: "Unauthorized",
@@ -119,6 +118,8 @@ export class GameAPI {
             frontend_skill: response.data.frontend_skill || 1,
             backend_skill: response.data.backend_skill || 1,
             problem_solving_skill: response.data.problem_solving_skill || 1,
+            bio: response.data.bio || "",
+            avatar_url: response.data.avatar_url || "",
           },
         };
       }
@@ -131,6 +132,34 @@ export class GameAPI {
         error: "Profile fetch failed",
         demoMode: true,
       };
+    }
+  }
+
+  static async updateProfile(data: {
+    username?: string;
+    bio?: string;
+    avatar_url?: string;
+  }) {
+    try {
+      return await api.put("/auth/profile", data);
+    } catch (error) {
+      console.error("Failed to update profile:", error);
+      return { success: false, error: "Profile update failed" };
+    }
+  }
+
+  static async uploadAvatar(file: File) {
+    try {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      return await api.post("/auth/avatar", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+    } catch (error) {
+      console.error("Failed to upload avatar:", error);
+      return { success: false, error: "Avatar upload failed" };
     }
   }
 
@@ -149,7 +178,6 @@ export class GameAPI {
       return response;
     } catch (error) {
       console.error("Failed to get map state:", error);
-      // Return demo map data when API fails
       return {
         success: false,
         error: "Map fetch failed",
@@ -199,6 +227,15 @@ export class GameAPI {
     }
   }
 
+  static async getQuestDetails(questId: string) {
+    try {
+      return await api.get(`/quests/${questId}`);
+    } catch (error) {
+      console.error("Failed to get quest details:", error);
+      return { success: false, error: "Quest details fetch failed" };
+    }
+  }
+
   static async startQuest(questId: string) {
     try {
       return await api.post(`/quests/${questId}/start`);
@@ -238,6 +275,15 @@ export class GameAPI {
     }
   }
 
+  static async getInventoryItem(itemId: string) {
+    try {
+      return await api.get(`/inventory/${itemId}`);
+    } catch (error) {
+      console.error("Failed to get inventory item:", error);
+      return { success: false, error: "Inventory item fetch failed" };
+    }
+  }
+
   static async useItem(itemId: string) {
     try {
       return await api.post(`/inventory/use/${itemId}`);
@@ -253,6 +299,15 @@ export class GameAPI {
     } catch (error) {
       console.error("Failed to equip item:", error);
       return { success: false, error: "Item equip failed" };
+    }
+  }
+
+  static async unequipItem(itemId: string) {
+    try {
+      return await api.post(`/inventory/unequip/${itemId}`);
+    } catch (error) {
+      console.error("Failed to unequip item:", error);
+      return { success: false, error: "Item unequip failed" };
     }
   }
 
@@ -316,6 +371,155 @@ export class GameAPI {
     }
   }
 
+  // Friend System
+  static async getFriends() {
+    try {
+      return await api.get("/friends");
+    } catch (error) {
+      console.error("Failed to get friends:", error);
+      return { success: false, error: "Friends fetch failed" };
+    }
+  }
+
+  static async sendFriendRequest(username: string) {
+    try {
+      return await api.post(`/friends/${username}/add`);
+    } catch (error) {
+      console.error("Failed to send friend request:", error);
+      return { success: false, error: "Friend request failed" };
+    }
+  }
+
+  static async acceptFriendRequest(username: string) {
+    try {
+      return await api.post(`/friends/${username}/accept`);
+    } catch (error) {
+      console.error("Failed to accept friend request:", error);
+      return { success: false, error: "Friend accept failed" };
+    }
+  }
+
+  static async removeFriend(username: string) {
+    try {
+      return await api.delete(`/friends/${username}/remove`);
+    } catch (error) {
+      console.error("Failed to remove friend:", error);
+      return { success: false, error: "Friend removal failed" };
+    }
+  }
+
+  static async getOnlineFriends() {
+    try {
+      return await api.get("/friends/online");
+    } catch (error) {
+      console.error("Failed to get online friends:", error);
+      return { success: false, error: "Online friends fetch failed" };
+    }
+  }
+
+  // Shop & Economy
+  static async getShopItems(page = 1, perPage = 10) {
+    try {
+      return await api.get(`/shop/items?page=${page}&per_page=${perPage}`);
+    } catch (error) {
+      console.error("Failed to get shop items:", error);
+      return { success: false, error: "Shop items fetch failed" };
+    }
+  }
+
+  static async buyItem(itemId: string, quantity: number) {
+    try {
+      return await api.post(`/shop/items/${itemId}/buy`, { quantity });
+    } catch (error) {
+      console.error("Failed to buy item:", error);
+      return { success: false, error: "Item purchase failed" };
+    }
+  }
+
+  static async sellItem(itemId: string, quantity: number) {
+    try {
+      return await api.post(`/shop/items/${itemId}/sell`, { quantity });
+    } catch (error) {
+      console.error("Failed to sell item:", error);
+      return { success: false, error: "Item sale failed" };
+    }
+  }
+
+  // Leaderboard
+  static async getLeaderboardCoins() {
+    try {
+      return await api.get("/leaderboard/coins");
+    } catch (error) {
+      console.error("Failed to get coins leaderboard:", error);
+      return { success: false, error: "Leaderboard fetch failed" };
+    }
+  }
+
+  static async getLeaderboardExp() {
+    try {
+      return await api.get("/leaderboard/exp");
+    } catch (error) {
+      console.error("Failed to get exp leaderboard:", error);
+      return { success: false, error: "Leaderboard fetch failed" };
+    }
+  }
+
+  static async getLeaderboardTasks() {
+    try {
+      return await api.get("/leaderboard/tasks");
+    } catch (error) {
+      console.error("Failed to get tasks leaderboard:", error);
+      return { success: false, error: "Leaderboard fetch failed" };
+    }
+  }
+
+  // Notifications
+  static async getNotifications() {
+    try {
+      return await api.get("/notifications");
+    } catch (error) {
+      console.error("Failed to get notifications:", error);
+      return { success: false, error: "Notifications fetch failed" };
+    }
+  }
+
+  static async markNotificationRead(notificationId: string) {
+    try {
+      return await api.post(`/notifications/${notificationId}/read`);
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
+      return { success: false, error: "Notification update failed" };
+    }
+  }
+
+  static async markAllNotificationsRead() {
+    try {
+      return await api.post("/notifications/mark-read");
+    } catch (error) {
+      console.error("Failed to mark all notifications as read:", error);
+      return { success: false, error: "Notifications update failed" };
+    }
+  }
+
+  // Daily Rewards
+  static async getDailyRewardStatus() {
+    try {
+      return await api.get("/rewards/daily");
+    } catch (error) {
+      console.error("Failed to get daily reward status:", error);
+      return { success: false, error: "Daily reward status fetch failed" };
+    }
+  }
+
+  static async claimDailyReward() {
+    try {
+      return await api.post("/rewards/daily/claim");
+    } catch (error) {
+      console.error("Failed to claim daily reward:", error);
+      return { success: false, error: "Daily reward claim failed" };
+    }
+  }
+
   // WebSocket Connection
   static connectWebSocket(onMessage: (event: string, data: any) => void) {
     const token = localStorage.getItem("auth_token");
@@ -328,7 +532,7 @@ export class GameAPI {
 
     try {
       // Use WebSocket URL from backend documentation
-      const wsUrl = `ws://localhost:8000/ws?token=${token}`;
+      const wsUrl = `${WS_URL}/ws?token=${token}`;
 
       this.socket = io(WS_URL, {
         query: { token },
@@ -405,6 +609,30 @@ export class GameAPI {
         target_x: targetX,
         target_y: targetY,
       });
+    }
+  }
+
+  static sendDirectMessage(username: string, message: string) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit("dm_message", { username, message });
+    }
+  }
+
+  static sendTypingIndicator(username: string) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit("dm_typing", { username });
+    }
+  }
+
+  static sendQuestUpdate(questId: string, progress: number) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit("quest_update", { quest_id: questId, progress });
+    }
+  }
+
+  static sendPing() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit("ping");
     }
   }
 

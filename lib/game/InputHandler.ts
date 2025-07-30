@@ -15,9 +15,12 @@ export class InputHandler {
       if (event.code === this.actionKey) {
         this.actionPressed = true;
       }
+
+      // Handle UI shortcuts
+      this.handleUIShortcuts(event.code);
       
       // Prevent default for game keys
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyI', 'KeyQ', 'KeyK', 'KeyF', 'KeyN'].includes(event.code)) {
         event.preventDefault();
       }
     });
@@ -34,6 +37,31 @@ export class InputHandler {
     document.addEventListener('blur', () => {
       this.keys.clear();
       this.actionPressed = false;
+    });
+  }
+
+  private handleUIShortcuts(keyCode: string) {
+    // Import game store dynamically to avoid circular dependencies
+    import('@/lib/store/gameStore').then(({ useGameStore }) => {
+      const store = useGameStore.getState();
+      
+      switch (keyCode) {
+        case 'KeyI':
+          store.toggleInventory();
+          break;
+        case 'KeyQ':
+          store.toggleQuestLog();
+          break;
+        case 'KeyK':
+          store.toggleSkillTree();
+          break;
+        case 'KeyF':
+          store.toggleFriends();
+          break;
+        case 'KeyN':
+          store.toggleNotifications();
+          break;
+      }
     });
   }
 

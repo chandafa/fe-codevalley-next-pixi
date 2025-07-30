@@ -4,6 +4,7 @@ import { Map } from "./world/Map";
 import { Camera } from "./Camera";
 import { InputHandler } from "./InputHandler";
 import { NPCManager } from "./entities/NPCManager";
+import { TimeManager } from "./TimeManager";
 import { useGameStore } from "../store/gameStore";
 import GameAPI from "../api/gameApi";
 
@@ -17,6 +18,7 @@ export class GameEngine {
   public camera: Camera | null = null;
   public inputHandler: InputHandler;
   public npcManager: NPCManager;
+  public timeManager: TimeManager | null = null;
 
   private gameStore = useGameStore;
   private lastUpdate = Date.now();
@@ -42,7 +44,7 @@ export class GameEngine {
     try {
       this.gameStore.getState().setLoading(true);
       
-      // Initialize PIXI Application untuk v8
+      // Initialize PIXI Application for v8
       this.app = new PIXI.Application();
       
       await this.app.init({
@@ -55,12 +57,12 @@ export class GameEngine {
         autoDensity: true,
       });
 
-      // Pastikan app dan stage sudah siap
+      // Ensure app and stage are ready
       if (!this.app || !this.app.stage) {
         throw new Error("PIXI Application stage not ready");
       }
 
-      // Add containers to stage setelah app siap
+      // Add containers to stage after app is ready
       this.app.stage.addChild(this.gameContainer);
       this.app.stage.addChild(this.uiContainer);
 
@@ -73,7 +75,7 @@ export class GameEngine {
       await this.loadPlayerData();
       await this.loadMapData("village");
 
-      // Initialize player dengan renderer yang sudah siap
+      // Initialize player with ready renderer
       const playerData = this.gameStore.getState().player;
       if (playerData && this.app.renderer) {
         this.player = new Player(playerData, this.app.renderer);
@@ -93,6 +95,9 @@ export class GameEngine {
       // Load NPCs
       await this.loadNPCs();
 
+      // Initialize time manager
+      this.timeManager = new TimeManager();
+
       // Setup WebSocket connection (only if authenticated)
       this.setupWebSocket();
 
@@ -107,7 +112,7 @@ export class GameEngine {
     } catch (error) {
       console.error("Failed to initialize game:", error);
       this.gameStore.getState().setLoading(false);
-      throw error; // Re-throw untuk di-handle oleh Game component
+      throw error; // Re-throw to be handled by Game component
     }
   }
 
@@ -141,13 +146,15 @@ export class GameEngine {
     const demoToken = 'demo_' + Date.now();
     localStorage.setItem('auth_token', demoToken);
   }
+
+  private startGameLoop() {
     if (!this.app) return;
 
     try {
-      // Gunakan ticker dari app untuk v8
+      // Use ticker from app for v8
       this.ticker = this.app.ticker;
       
-      // Bind update method dan tambahkan ke ticker
+      // Bind update method and add to ticker
       const updateFn = this.update.bind(this);
       this.ticker.add(updateFn);
       
@@ -160,12 +167,12 @@ export class GameEngine {
   private async loadPlayerData() {
     try {
       const response = await GameAPI.getProfile();
-      if (response.success) {
+      if (response.success && response.data) {
         const userData = response.data;
         const player = {
           id: userData.id,
           username: userData.username,
-          position: { x: userData.pos_x || 100, y: userData.pos_y || 100 },
+          position: { x: userData.pos_x || 400, y: userData.pos_y || 300 },
           direction: "down" as const,
           currentMap: userData.current_map || "village",
           stats: {
@@ -184,6 +191,9 @@ export class GameEngine {
         };
 
         this.gameStore.getState().setPlayer(player);
+        console.log("Player data loaded successfully");
+      } else {
+        this.createDefaultPlayer();
       }
     } catch (error) {
       console.error("Failed to load player data:", error);
@@ -215,15 +225,19 @@ export class GameEngine {
     };
 
     this.gameStore.getState().setPlayer(defaultPlayer);
+    console.log("Default player created");
   }
 
   private async loadMapData(mapName: string) {
     try {
       const response = await GameAPI.getMapState(mapName);
-      if (response.success) {
+      if (response.success && response.data) {
         // Load map from API data
         this.currentMap = new Map(mapName, response.data, this.app?.renderer);
         this.gameContainer.addChild(this.currentMap.container);
+        console.log("Map data loaded from API");
+      } else {
+        this.createDefaultMap(mapName);
       }
     } catch (error) {
       console.error("Failed to load map data:", error);
@@ -235,10 +249,11 @@ export class GameEngine {
   private createDefaultMap(mapName: string) {
     this.currentMap = new Map(mapName, undefined, this.app?.renderer);
     this.gameContainer.addChild(this.currentMap.container);
+    console.log("Default map created");
   }
 
   private async loadNPCs() {
-    // Create demo NPCs
+    // Create demo NPCs based on backend structure
     const demoNPCs = [
       {
         id: "mentor_alice",
@@ -253,7 +268,7 @@ export class GameEngine {
           {
             text: "Would you like to learn about frontend development?",
             speaker: "Alice",
-            choices: ["Yes", "No"],
+            choices: ["Yes, teach me!", "Maybe later"],
           },
         ],
         relationship: 0,
@@ -269,7 +284,28 @@ export class GameEngine {
             text: "Hey there! I have some coding projects if you're interested.",
             speaker: "Bob",
           },
-          { text: "Check the quest board for available work!", speaker: "Bob" },
+          { 
+            text: "Check the quest board for available work!", 
+            speaker: "Bob" 
+          },
+        ],
+        relationship: 0,
+        schedule: [],
+      },
+      {
+        id: "farmer_charlie",
+        name: "Charlie the Code Farmer",
+        position: { x: 600, y: 400 },
+        currentMap: "village",
+        dialogue: [
+          {
+            text: "Welcome to the Code Farm! Here you can plant and grow algorithms.",
+            speaker: "Charlie",
+          },
+          {
+            text: "Plant some seeds and water them regularly for the best harvest!",
+            speaker: "Charlie",
+          },
         ],
         relationship: 0,
         schedule: [],
@@ -278,6 +314,7 @@ export class GameEngine {
 
     this.gameStore.getState().setNPCs(demoNPCs);
     this.npcManager.loadNPCs(demoNPCs, this.gameContainer, this.app?.renderer);
+    console.log("NPCs loaded successfully");
   }
 
   private setupWebSocket() {
@@ -298,14 +335,41 @@ export class GameEngine {
           case "time_update":
             this.gameStore.getState().setGameTime(data);
             break;
+          case "season_change":
+            console.log("Season changed:", data);
+            break;
           case "npc_position_update":
             this.npcManager.updateNPCPosition(data);
+            break;
+          case "world_object_update":
+            this.handleWorldObjectUpdate(data);
+            break;
+          case "interaction_result":
+            this.handleInteractionResult(data);
             break;
           case "quest_update":
             this.handleQuestUpdate(data);
             break;
+          case "achievement_unlocked":
+            this.showNotification(`Achievement unlocked: ${data.title}`);
+            break;
+          case "level_up":
+            this.showNotification(`Level up! You are now level ${data.level}`);
+            break;
           case "notification":
             this.showNotification(data.message);
+            break;
+          case "friend_request":
+            this.showNotification(`Friend request from ${data.username}`);
+            break;
+          case "dm_message":
+            this.showNotification(`Message from ${data.sender}: ${data.message}`);
+            break;
+          case "guild_invitation":
+            this.showNotification(`Guild invitation from ${data.guild_name}`);
+            break;
+          case "event_broadcast":
+            this.showNotification(`Event: ${data.message}`);
             break;
         }
       });
@@ -328,12 +392,39 @@ export class GameEngine {
     this.gameStore.getState().setOtherPlayers(updatedPlayers);
   }
 
+  private handleWorldObjectUpdate(data: any) {
+    console.log("World object update:", data);
+    // Handle world object changes (trees chopped, rocks mined, etc.)
+  }
+
+  private handleInteractionResult(data: any) {
+    console.log("Interaction result:", data);
+    // Handle interaction results (item received, energy consumed, etc.)
+    if (data.rewards) {
+      const { player } = this.gameStore.getState();
+      if (player && data.rewards.coins) {
+        this.gameStore.getState().updatePlayerStats({
+          coins: player.stats.coins + data.rewards.coins
+        });
+      }
+    }
+  }
+
   private handleQuestUpdate(data: any) {
     console.log("Quest update:", data);
+    // Update quest progress in store
+    const { quests } = this.gameStore.getState();
+    const updatedQuests = quests.map(quest => 
+      quest.id === data.quest_id 
+        ? { ...quest, progress: data.progress, status: data.status }
+        : quest
+    );
+    this.gameStore.getState().setQuests(updatedQuests);
   }
 
   private showNotification(message: string) {
     console.log("Notification:", message);
+    // TODO: Implement in-game notification system
   }
 
   public update() {
@@ -396,7 +487,7 @@ export class GameEngine {
       }
     }
 
-    // Check object interactions
+    // Check object interactions via WebSocket
     GameAPI.sendPlayerInteract(playerPos.x, playerPos.y);
   }
 
@@ -425,7 +516,15 @@ export class GameEngine {
   public destroy() {
     this.gameLoop = false;
     this.isInitialized = false;
+    
+    // Disconnect WebSocket
     GameAPI.disconnectWebSocket();
+
+    // Destroy time manager
+    if (this.timeManager) {
+      this.timeManager.destroy();
+      this.timeManager = null;
+    }
 
     // Stop ticker
     if (this.ticker) {
@@ -451,7 +550,7 @@ export class GameEngine {
       this.currentMap = null;
     }
 
-    // Destroy containers dengan proper cleanup
+    // Destroy containers with proper cleanup
     if (this.gameContainer) {
       // Remove all children first
       while (this.gameContainer.children.length > 0) {
@@ -484,7 +583,7 @@ export class GameEngine {
       });
     }
 
-    // Destroy app dengan method yang benar untuk v8
+    // Destroy app with correct method for v8
     if (this.app) {
       try {
         // Remove containers from stage first
@@ -492,7 +591,7 @@ export class GameEngine {
           this.app.stage.removeChildren();
         }
         
-        // Destroy app tanpa parameter untuk v8
+        // Destroy app without parameters for v8
         this.app.destroy();
         this.app = null;
       } catch (error) {
