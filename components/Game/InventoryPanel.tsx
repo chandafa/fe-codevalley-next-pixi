@@ -1,0 +1,107 @@
+'use client';
+
+import { useGameStore } from '@/lib/store/gameStore';
+import { X, Package, Wrench, Coffee, Code } from 'lucide-react';
+
+export default function InventoryPanel() {
+  const { player, toggleInventory } = useGameStore();
+
+  if (!player) return null;
+
+  const getItemIcon = (type: string) => {
+    switch (type) {
+      case 'tool':
+        return <Wrench className="w-6 h-6" />;
+      case 'consumable':
+        return <Coffee className="w-6 h-6" />;
+      case 'code':
+        return <Code className="w-6 h-6" />;
+      default:
+        return <Package className="w-6 h-6" />;
+    }
+  };
+
+  const getItemColor = (type: string) => {
+    switch (type) {
+      case 'tool':
+        return 'text-yellow-400';
+      case 'consumable':
+        return 'text-green-400';
+      case 'code':
+        return 'text-blue-400';
+      default:
+        return 'text-gray-400';
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
+      <div className="bg-slate-800 rounded-lg shadow-2xl w-96 max-h-[80vh] overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <h2 className="text-xl font-bold text-white flex items-center">
+            <Package className="w-6 h-6 mr-2" />
+            Inventory
+          </h2>
+          <button
+            onClick={toggleInventory}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4">
+          {player.inventory.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p>Your inventory is empty</p>
+              <p className="text-sm mt-2">Explore the world to find items!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-3">
+              {player.inventory.map((item, index) => (
+                <div
+                  key={`${item.id}-${index}`}
+                  className="bg-slate-700 rounded-lg p-3 hover:bg-slate-600 transition-colors cursor-pointer group"
+                  title={item.name}
+                >
+                  <div className={`${getItemColor(item.type)} group-hover:scale-110 transition-transform`}>
+                    {getItemIcon(item.type)}
+                  </div>
+                  
+                  {item.quantity > 1 && (
+                    <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                      {item.quantity}
+                    </div>
+                  )}
+                  
+                  {item.equipped && (
+                    <div className="absolute -bottom-1 -right-1 bg-yellow-500 rounded-full w-3 h-3" />
+                  )}
+                </div>
+              ))}
+              
+              {/* Empty slots */}
+              {Array.from({ length: Math.max(0, 20 - player.inventory.length) }).map((_, index) => (
+                <div
+                  key={`empty-${index}`}
+                  className="bg-slate-700/50 rounded-lg p-3 border-2 border-dashed border-slate-600"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-700 text-sm text-gray-400">
+          <p>Click items to use or equip them</p>
+          <p className="mt-1">
+            Capacity: {player.inventory.length}/20
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
